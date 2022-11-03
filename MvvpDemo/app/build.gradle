@@ -4,15 +4,19 @@ plugins {
 }
 
 android {
-    compileSdk 33
+    compileSdk 30
 
     defaultConfig {
         applicationId "org.aaron.mvvpdemo"
         minSdk 21
-        targetSdk 33
+        targetSdk 30
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+    }
+
+    dataBinding{
+        enabled = true
     }
 
     buildTypes {
