@@ -1,9 +1,11 @@
 package com.le.downloadfilefromgithub
 
-import android.os.Build
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
@@ -13,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -26,14 +27,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.le.downloadfilefromgithub.ui.theme.DownloadFileFromGithubTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -43,15 +47,13 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.URL
 import java.net.URLEncoder
-import java.util.Base64
-import android.util.Base64 as AndroidBase64
 
 class MainActivity : ComponentActivity() {
 
-    val token = "y9U13XcYTuqtFNCvGy4B"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
+         setContent {
             DownloadFileFromGithubTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(
@@ -64,7 +66,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-val token = "y9U13XcYTuqtFNCvGy4B"
+val token = "qWApQdzxfFvZNRBCWezP"
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
 
@@ -79,6 +81,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
         // 创建一个按钮并添加点击事件
+        val context = LocalContext.current
         Button(onClick = {
             CoroutineScope(Dispatchers.IO).launch {
                 val fileContent = fetchFileContentFromGitLab()
@@ -134,7 +137,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
                 },
                 confirmButton = {
                     Button(onClick = {
-                        val apkUrl = mData?.apkUrl
+                        val apkUrl = mData?.apkPath
                         //启动携程下载 apk
                         downloading = true
 
@@ -154,7 +157,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
                                 progress = it
                                 if (it == 1f) {
                                     downloading = false
-                                    installApk(apkFilePath = "gacha_release.apk")
+                                    installApk2(context = context, apkFileName = "gacha_release.apk")
                                 }
                             }
 
@@ -184,7 +187,8 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 fun installApk(apkFilePath: String) {
     try {
         // 假设您已经配置了adb路径并具有相应权限
-        val process = Runtime.getRuntime().exec("adb install $apkFilePath")
+        val path = FileUtils.getApkFile(apkFilePath).absolutePath
+        val process = Runtime.getRuntime().exec("adb install ${path}")
         process.waitFor()
         if (process.exitValue() == 0) {
             println("APK安装成功")
@@ -197,6 +201,21 @@ fun installApk(apkFilePath: String) {
         e.printStackTrace()
     }
 }
+fun installApk2(context: Context, apkFileName: String) {
+    val file =FileUtils.getApkFile(apkFileName)
+    Log.d(TAG, "file md5 = ${FileUtils.getFileMD5(file)}")
+    Log.d(TAG, "file path = ${file.path}")
+    Log.d(TAG, "context.packageName = ${context.packageName}")
+    //a60d7170e25d7a2c0411362fd5a0072f
+    val uri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "application/vnd.android.package-archive")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(intent)
+}
+
 
 suspend fun downloadApk(url: String?, fileName: String, onProgress: (Float) -> Unit) {
     if (url == null) {
@@ -213,7 +232,7 @@ suspend fun downloadApk(url: String?, fileName: String, onProgress: (Float) -> U
             val fileLength = connection.contentLength
 
             val input = connection.getInputStream()
-            val output = FileOutputStream(File(fileName))
+            val output = FileOutputStream(FileUtils.getApkFile(fileName))
 
             val data = ByteArray(4096)
             var total: Long = 0
@@ -249,7 +268,7 @@ private fun parseUpdateFile(
         val versionName = jsonObject.getString("versionName")
         val versionMessage = jsonObject.getString("updateMessage")
         val versionTime = jsonObject.getString("updateTime")
-        val apkUrl = jsonObject.getString("apkUrl")
+        val apkUrl = jsonObject.getString("apkPath")
         handleContent.invoke(
             VersionData(
                 versionCode,
@@ -262,17 +281,6 @@ private fun parseUpdateFile(
     }.getOrElse {
         Log.d(TAG, "error-> ${it.message}")
     }
-}
-
-private fun parseGradleContent(fileContent: String) {
-    val versionCodeRegex = """versionCode\s+(\d+)""".toRegex()
-    val versionNameRegex = """versionName\s+"([^"]+)"""".toRegex()
-
-    val versionCode = versionCodeRegex.find(fileContent)?.groupValues?.get(1)
-    val versionName = versionNameRegex.find(fileContent)?.groupValues?.get(1)
-
-    println("Version Code: $versionCode")
-    println("Version Name: $versionName")
 }
 
 private fun get52ToysGitlabFileUrl(filePath: String): String {
@@ -341,55 +349,12 @@ fun GreetingPreview() {
     }
 }
 
-private fun fetchFileContent(): String {
-    // 你的 GitHub 用户名
-    val username = "wangxiangle"
-    // 你的 GitHub Personal Access Token
-
-    // 仓库名称，格式为 'owner/repo'
-    val repo = "owner/repo"
-    // 文件路径，相对于仓库根目录
-    val path = "path/to/your/file"
-
-    // GitHub API URL
-    val url = "https://api.github.com/repos/$repo/contents/$path"
-
-    val client = OkHttpClient()
-    val credential = Credentials.basic(username, token)
-
-    val request = Request.Builder()
-        .url(url)
-        .header("Authorization", credential)
-        .build()
-
-    return try {
-        val response: Response = client.newCall(request).execute()
-        if (!response.isSuccessful) {
-            "Failed to retrieve file: ${response.code}"
-        } else {
-            // 解析 JSON 响应
-            val jsonResponse = response.body?.string()
-            val jsonObject = JSONObject(jsonResponse)
-            // 获取文件内容并解码
-            val fileContent = jsonObject.getString("content")
-            val decodedBytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Base64.getDecoder().decode(fileContent)
-            } else {
-                AndroidBase64.decode(fileContent, AndroidBase64.DEFAULT)
-            }
-            String(decodedBytes)
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
-        "Error: ${e.message}"
-    }
-}
 
 data class VersionData(
     val versionCode: Int,
     val versionName: String,
     val updateMessage: String,
     val updateTime: String,
-    val apkUrl: String
+    val apkPath: String
 )
 
